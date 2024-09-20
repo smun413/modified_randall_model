@@ -1,10 +1,12 @@
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 from scipy.integrate import solve_ivp
+from scipy.optimize import least_squares
 
-###### Constants defining metabolite pools ######
+# Constants defining metabolite pools
 # Volume fractions and water space fractions
-V_c = 1.0  # buffer volume fraction        # L buffer (L cuvette)**(-1)
+V_c = 1.0  # buffer volume fraction      # L buffer (L cuvette)**(-1)
 V_m = 0.0005  # mitochondrial volume fraction # L mito (L cuvette)**(-1)
 V_m2c = V_m / V_c  # mito to cyto volume ratio     # L mito (L cuvette)**(-1)
 W_c = 1.0  # buffer water space            # L buffer water (L buffer)**(-1)
@@ -20,7 +22,7 @@ c_tot = 2.7e-3  # cytochrome c ox and red conc  # mol (L IM water)**(-1)
 # Membrane capacitance
 Cm = 3.1e-3
 
-###### Set fixed pH, cation concentrations, and O2 partial pressure ######
+# Set fixed pH, cation concentrations, and O2 partial pressure #
 # pH
 pH_x = 7.40
 pH_c = 7.20
@@ -36,10 +38,11 @@ Mg_c = 1.0e-3  # mol (L cyto water)**(-1)
 # Oxygen partial pressure
 PO2 = 25  # mmHg
 
-###### Parameter vector ######
+# Parameter vector
 X_DH = 0.1732
 X_C1 = 1.0e4
 X_C3 = 1.0e6
+# X_C4  = 0.0125
 X_C4 = 0.0125
 X_F = 1.0e3
 E_ANT = 0.325
@@ -49,7 +52,7 @@ X_AtC = 0
 
 activity_array = np.array([X_DH, X_C1, X_C3, X_C4, X_F, E_ANT, E_PiC, X_H, X_AtC])
 
-###### Initial Conditions ######
+# Initial Conditions
 # Membrane Potential
 DPsi_0 = 175 / 1000  # V
 
@@ -108,11 +111,11 @@ def dXdt(t, X, activity_array, solve_ode):
     K_KPi = 10 ** (-0.42)
 
     # Other concentrations computed from the state variables
-    NAD_x = NAD_tot - NADH_x  ## mol (L matrix water)**(-1)
-    Q_x = Q_tot - QH2_x  ## mol (L matrix water)**(-1)
-    cox_i = c_tot - cred_i  ## mol (L matrix water)**(-1)
+    NAD_x = NAD_tot - NADH_x  # mol (L matrix water)**(-1)
+    Q_x = Q_tot - QH2_x  # mol (L matrix water)**(-1)
+    cox_i = c_tot - cred_i  # mol (L matrix water)**(-1)
 
-    ## Binding polynomials
+    # Binding polynomials
     # Matrix species # mol (L mito water)**(-1)
     PATP_x = 1 + H_x / K_HATP + Mg_x / K_MgATP + K_x / K_KATP
     PADP_x = 1 + H_x / K_HADP + Mg_x / K_MgADP + K_x / K_KADP
@@ -123,7 +126,7 @@ def dXdt(t, X, activity_array, solve_ode):
     PADP_c = 1 + H_c / K_HADP + Mg_c / K_MgADP + K_c / K_KADP
     PPi_c = 1 + H_c / K_HPi + Mg_c / K_MgPi + K_c / K_KPi
 
-    ## Unbound species
+    # Unbound species
     # Matrix species
     ATP_x = sumATP_x / PATP_x  # [ATP4-]_x
     ADP_x = sumADP_x / PADP_x  # [ADP3-]_x
@@ -134,7 +137,7 @@ def dXdt(t, X, activity_array, solve_ode):
     ADP_c = sumADP_c / PADP_c  # [ADP3-]_c
     Pi_c = sumPi_c / PPi_c  # [HPO42-]_c
 
-    ###### NADH Dehydrogenase ######
+    # NADH Dehydrogenase #
     # Constants
     r = 6.8385
     k_Pi1 = 4.659e-4  # mol (L matrix water)**(-1)
@@ -143,7 +146,7 @@ def dXdt(t, X, activity_array, solve_ode):
     # Flux (mol (s * L mito)**(-1))
     J_DH = X_DH * (r * NAD_x - NADH_x) * ((1 + sumPi_x / k_Pi1) / (1 + sumPi_x / k_Pi2))
 
-    ###### Complex I ######
+    # Complex I #
     # NADH_x + Q_x + 5H+_x <-> NAD+_x + QH2_x + 4H+_i + 4DPsi
 
     # Gibbs energy (J mol**(-1))
@@ -156,7 +159,7 @@ def dXdt(t, X, activity_array, solve_ode):
     # Flux (mol (s * L mito)**(-1))
     J_C1 = X_C1 * (Kapp_C1 * NADH_x * Q_x - NAD_x * QH2_x)
 
-    ###### Complex III ######
+    # Complex III #
     # QH2_x + 2cuvetteC(ox)3+_i + 2H+_x <-> Q_x + 2cuvetteC(red)2+_i + 4H+_i + 2DPsi
 
     # Gibbs energy (J mol**(-1))
@@ -169,7 +172,7 @@ def dXdt(t, X, activity_array, solve_ode):
     # Flux (mol (s * L mito)**(-1))
     J_C3 = X_C3 * (Kapp_C3 * cox_i ** 2 * QH2_x - cred_i ** 2 * Q_x)
 
-    ###### Complex IV ######
+    # Complex IV #
     # 2 cytoC(red)2+_i + 0.5O2_x + 4H+_x <-> cytoC(ox)3+_x + H2O_x + 2H+_i +2DPsi
 
     # Constant
@@ -185,7 +188,7 @@ def dXdt(t, X, activity_array, solve_ode):
     # Flux (mol (s * L mito)**(-1))
     J_C4 = X_C4 * (Kapp_C4 ** 0.5 * cred_i * O2_x ** 0.25 - cox_i) * (1 / (1 + k_O2 / O2_x))
 
-    ###### F0F1-ATPase ######
+    # F0F1-ATPase #
     # ADP3-_x + HPO42-_x + H+_x + n_A*H+_i <-> ATP4- + H2O + n_A*H+_x
 
     # Gibbs energy (J mol**(-1))
@@ -198,7 +201,7 @@ def dXdt(t, X, activity_array, solve_ode):
     # Flux (mol (s * L mito)**(-1))
     J_F = X_F * (Kapp_F * sumADP_x * sumPi_x - sumATP_x)
 
-    ###### ANT ######
+    # ANT #
     # ATP4-_x + ADP3-_i <-> ATP4-_i + ADP3-_x
 
     # Constants
@@ -231,7 +234,7 @@ def dXdt(t, X, activity_array, solve_ode):
     # Flux (mol (s * L mito)**(-1))
     J_ANT = E_ANT * num / den
 
-    ###### H+-PI2 cotransporter ######
+    # H+-PI2 cotransporter #
     # H2PO42-_x + H+_x = H2PO42-_c + H+_c
 
     # Constant
@@ -244,18 +247,18 @@ def dXdt(t, X, activity_array, solve_ode):
     # Flux (mol (s * L mito)**(-1))
     J_PiC = E_PiC * (H_c * HPi_c - H_x * HPi_x) / (k_PiC + HPi_c)
 
-    ###### H+ leak ######
+    # H+ leak #
 
     # Flux (mol (s * L mito)**(-1))
     J_H = X_H * (H_c * np.exp(phi / 2) - H_x * np.exp(-phi / 2))
 
-    ###### ATPase ######
+    # ATPase #
     # ATP4- + H2O = ADP3- + PI2- + H+
 
     # Flux (mol (s * L cyto)**(-1))
     J_AtC = X_AtC / V_c
 
-    ###### Differential equations (equation 23) ######
+    # Differential equations (equation 23) #
     # Membrane potential
     dDPsi = (n_C1 * J_C1 + n_C3 * J_C3 + n_C4 * J_C4 - n_F * J_F - J_ANT - J_H) / Cm
 
@@ -284,87 +287,163 @@ def dXdt(t, X, activity_array, solve_ode):
         return dX, J
 
 
-### Four State Model ###
-# State 1 - no substrates
-t_1 = np.linspace(0, 25, 25 * 2)
-X_AtC = 0.
-X_DH = 0.001  # Kept non-zero for solver stability
-activity_array = np.array([X_DH, X_C1, X_C3, X_C4, X_F, E_ANT, E_PiC, X_H, X_AtC])
-state_1_results = solve_ivp(dXdt, [0, 25], X_0, method='Radau', t_eval=t_1, args=(activity_array, 1,))
+def objective_function(params, state_o2_flux_normalized_array):
+    X_C1, X_C3, X_C4, X_F, E_ANT, E_PiC, X_H = params  # phosphate control
 
-# State 2 - Add substrate (i.e. turn on X_DH)
-t_2 = np.linspace(25, 75, (75 - 25) * 2)
-X_DH = 0.0866 * 2
-activity_array = np.array([X_DH, X_C1, X_C3, X_C4, X_F, E_ANT, E_PiC, X_H, X_AtC])
-state_2_results = solve_ivp(dXdt, [25, 75], state_1_results.y[:, -1], method='Radau', t_eval=t_2,
-                            args=(activity_array, 1,))
+    # Four State Model ##
+    # State 1 - no substrates
+    time_to_steady_state = 100
+    t_1 = np.linspace(0, time_to_steady_state, time_to_steady_state * 2)
+    X_AtC = 0.
+    X_DH = 0.001  # Kept non-zero for solver stability
+    activity_array = np.array([X_DH, X_C1, X_C3, X_C4, X_F, E_ANT, E_PiC, X_H, X_AtC])
+    state_1_results = solve_ivp(dXdt, [0, time_to_steady_state], X_0, method='Radau', t_eval=t_1,
+                                args=(activity_array, 1,))
 
-# State 3 and 4 - Add ADP
-t_3 = np.linspace(75, 200, (200 - 75) * 2)
-state_2_results.y[8, -1] = 0.375e-3  # Molar
-state_3_results = solve_ivp(dXdt, [75, 200], state_2_results.y[:, -1], method='Radau', t_eval=t_3,
-                            args=(activity_array, 1,))
+    # State 2 - Add substrate (i.e. turn on X_DH)
+    t_2 = np.linspace(time_to_steady_state, (2 * time_to_steady_state), time_to_steady_state * 2)
+    X_DH = 0.0866 * 2
+    activity_array = np.array([X_DH, X_C1, X_C3, X_C4, X_F, E_ANT, E_PiC, X_H, X_AtC])
+    state_2_results = solve_ivp(dXdt, [time_to_steady_state, (2 * time_to_steady_state)], state_1_results.y[:, -1],
+                                method='Radau', t_eval=t_2,
+                                args=(activity_array, 1,))
 
-# Concatenate Results
-# Note: remove redundant time points
-all_results = np.hstack((state_1_results.y[:, 0:-1], state_2_results.y[:, 0:-1], state_3_results.y))
-t = np.concatenate((state_1_results.t[0:-1], state_2_results.t[0:-1], state_3_results.t))
+    # State 3 and 4 - Add ADP
+    t_3 = np.linspace((2 * time_to_steady_state), (3 * time_to_steady_state), time_to_steady_state * 2)
+    state_2_results.y[8, -1] = 0.375e-3  # Molar
+    state_3_results = solve_ivp(dXdt, [(2 * time_to_steady_state), (3 * time_to_steady_state)],
+                                state_2_results.y[:, -1],
+                                method='Radau', t_eval=t_3,
+                                args=(activity_array, 1,))
 
-DPsi, sumATP_x, sumADP_x, sumPi_x, NADH_x, QH2_x, cred_i, sumATP_c, sumADP_c, sumPi_c = all_results
+    # Concatenate Results
+    # Note: remove redundant time points
+    all_results = np.hstack((state_1_results.y, state_2_results.y, state_3_results.y))
+    t = np.concatenate((state_1_results.t, state_2_results.t, state_3_results.t))
 
-# Calculate complex IV Flux
-J_C4 = np.zeros(len(t))
-for i in range(len(t)):
-    dX, J = dXdt(t[i], all_results[:, i], activity_array, 0)
-    J_C4[i] = J[9]
+    # DPsi, sumATP_x, sumADP_x, sumPi_x, NADH_x, QH2_x, cred_i, sumATP_c, sumADP_c, sumPi_c = all_results
 
-# Convert complex IV flux to oxygen flux in nmol O2 / U citrate synthase
-JO2 = J_C4 / 2 * 60 * 1e9 * 0.0000012232
+    # Calculate complex IV Flux
+    J_C4 = np.zeros(len(t))
+    for i in range(len(t)):
+        dX, J = dXdt(t[i], all_results[:, i], activity_array, 0)
+        J_C4[i] = J[9]
 
-fig, ax = plt.subplots(1,3, figsize = (30,5))
+    # Convert complex IV flux to oxygen flux in nmol O2 / U citrate synthase
+    # JO2 = J_C4 / 2 * 60 * 1e9 * 0.0000012232
 
-ax[0].plot((-5,205),(0,0),'k')
-ax[0].plot((0,0),(-5,205),'k:', linewidth = 1.75)
-ax[0].plot((25,25),(-5,205),'k:', linewidth = 1.75)
-ax[0].plot((75,75),(-5,205),'k:', linewidth = 1.75)
-ax[0].plot((150,150),(-5,205),'k:', linewidth = 1.75)
-ax[0].plot(t, JO2)
-ax[0].set_ylim([-5,205])
-ax[0].set_xlim([-5,205])
-ax[0].text(12.5, 190, 'State 1', horizontalalignment='center', verticalalignment='center', fontsize = 15)
-ax[0].text(50, 190, 'State 2', horizontalalignment='center', verticalalignment='center', fontsize = 15)
-ax[0].text(112.5, 190, 'State 3', horizontalalignment='center', verticalalignment='center', fontsize = 15)
-ax[0].text(175, 190, 'State 4', horizontalalignment='center', verticalalignment='center', fontsize = 15)
-ax[0].set_xlabel('Times (s)', fontsize = 15)
-ax[0].set_ylabel('OCR (nmol O$_2$ min$^{-1}$ U CS$^{-1}$)', fontsize = 15)
+    # obtain critical values for each state for o2
+    state_1_critical_value_o2_flux = min(J_C4[0:time_to_steady_state])
+    state_2_critical_value_o2_flux = min(J_C4[time_to_steady_state:(2 * time_to_steady_state)])
+    state_3_critical_value_o2_flux = max(J_C4[(2 * time_to_steady_state):(3 * time_to_steady_state)])
+    state_4_critical_value_o2_flux = min(J_C4[(2 * time_to_steady_state):(3 * time_to_steady_state)])
 
-ax[1].plot((-5,205),(0,0),'k')
-ax[1].plot((0,0),(-0.05,1),'k:', linewidth = 1.75)
-ax[1].plot((25,25),(-0.05,1),'k:', linewidth = 1.75)
-ax[1].plot((75,75),(-0.05,1),'k:', linewidth = 1.75)
-ax[1].plot((150,150),(-0.05,1),'k:', linewidth = 1.75)
-ax[1].plot(t, NADH_x/NAD_tot,'r')
-ax[1].set_ylim([-0.05,1])
-ax[1].set_xlim([-5,205])
-ax[1].text(12.5, 0.9, 'State 1', horizontalalignment='center', verticalalignment='center', fontsize = 15)
-ax[1].text(50, .9, 'State 2', horizontalalignment='center', verticalalignment='center', fontsize = 15)
-ax[1].text(112.5, .9, 'State 3', horizontalalignment='center', verticalalignment='center', fontsize = 15)
-ax[1].text(175, .9, 'State 4', horizontalalignment='center', verticalalignment='center', fontsize = 15)
-ax[1].set_xlabel('Times (s)', fontsize = 15)
-ax[1].set_ylabel('[NADH]$_x$ (mM)', fontsize = 15)
+    # normalization of o2 flux critical values to  state 3 max
+    normalized_state_1_critical_value = state_1_critical_value_o2_flux / state_3_critical_value_o2_flux
+    normalized_state_2_critical_value = state_2_critical_value_o2_flux / state_3_critical_value_o2_flux
+    normalized_state_3_critical_value = 1
+    normalized_state_4_critical_value = state_4_critical_value_o2_flux / state_3_critical_value_o2_flux
 
-ax[2].plot((0,0),(75,210),'k:', linewidth = 1.75)
-ax[2].plot((25,25),(75,210),'k:', linewidth = 1.75)
-ax[2].plot((75,75),(75,210),'k:', linewidth = 1.75)
-ax[2].plot((150,150),(75,210),'k:', linewidth = 1.75)
-ax[2].plot(t, DPsi*1000,'g')
-ax[2].set_ylim([75,210])
-ax[2].set_xlim([-5,205])
-ax[2].text(12.5, 200, 'State 1', horizontalalignment='center', verticalalignment='center', fontsize = 15)
-ax[2].text(50, 200, 'State 2', horizontalalignment='center', verticalalignment='center', fontsize = 15)
-ax[2].text(112.5, 200, 'State 3', horizontalalignment='center', verticalalignment='center', fontsize = 15)
-ax[2].text(175, 200, 'State 4', horizontalalignment='center', verticalalignment='center', fontsize = 15)
-ax[2].set_xlabel('Times (s)', fontsize = 15)
-ax[2].set_ylabel('$\Delta \Psi$ (mV)', fontsize = 15)
+    # extract experiment values
+    experiment_state_1_o2_flux = state_o2_flux_normalized_array[0]
+    experiment_state_2_o2_flux = state_o2_flux_normalized_array[1]
+    experiment_state_3_o2_flux = state_o2_flux_normalized_array[2]
+    experiment_state_4_o2_flux = state_o2_flux_normalized_array[3]
 
-plt.show()
+    # calculate error
+    absolute_error = abs(experiment_state_1_o2_flux - normalized_state_1_critical_value) + abs(
+        experiment_state_2_o2_flux - normalized_state_2_critical_value) + abs(
+        experiment_state_3_o2_flux - normalized_state_3_critical_value) + + abs(
+        experiment_state_4_o2_flux - normalized_state_4_critical_value)
+    print('absolute error is ' + str(absolute_error))
+    return absolute_error
+
+
+# call optimization
+# experiment data references
+o2_flux_experiment_normalized = [[0.029323144, 0.126387532, 0.863175836, 0.194421431],
+                                 [0.027105566, 0.146234445, 0.680512104, 0.211650942],
+                                 [0.071945575, 0.217753404, 0.787506131, 0.303832948],
+                                 [0.062195238, 0.179028223, 0.7828216, 0.243645072],
+                                 [0.083363217, 0.215896491, 1, 0.287565899],
+                                 [0.057916713, 0.160788848, 0.634728182, 0.190491206],
+                                 [0.093641156, 0.225587061, 0.710826563, 0.260173861]]
+
+for j in range(len(o2_flux_experiment_normalized)):
+    # optimization  parameter bounds
+    lower_bounds = np.array([1.0e2, 1.0e4, 0.0025, 1.0e1, 0.2, 5.0e4, 1.0e1])  # without phosphate control
+    upper_bounds = np.array([1.0e6, 1.0e8, 0.0625, 1.0e5, 0.45, 5.0e8, 1.0e5])  # without  phosphate control
+    initial_guess = np.array([1.0e4, 1.0e6, 0.0125, 1.0e3, 0.325, 5.0e6, 1.0e3])
+
+    result = least_squares(
+        objective_function, initial_guess, args=(o2_flux_experiment_normalized[j],),
+        bounds=(lower_bounds, upper_bounds)
+    )
+
+    optimized_params = result.x
+
+    X_C1, X_C3, X_C4, X_F, E_ANT, E_PiC, X_H = optimized_params  # phosphate control
+
+    # Four State Model
+    # State 1 - no substrates
+    time_to_steady_state = 100
+    t_1 = np.linspace(0, time_to_steady_state, time_to_steady_state * 2)
+    X_AtC = 0.
+    X_DH = 0.001  # Kept non-zero for solver stability
+    activity_array = np.array([X_DH, X_C1, X_C3, X_C4, X_F, E_ANT, E_PiC, X_H, X_AtC])
+    state_1_results = solve_ivp(dXdt, [0, time_to_steady_state], X_0, method='Radau', t_eval=t_1,
+                                args=(activity_array, 1,))
+
+    # State 2 - Add substrate (i.e. turn on X_DH)
+    t_2 = np.linspace(time_to_steady_state, (2 * time_to_steady_state), time_to_steady_state * 2)
+    X_DH = 0.0866 * 2
+    activity_array = np.array([X_DH, X_C1, X_C3, X_C4, X_F, E_ANT, E_PiC, X_H, X_AtC])
+    state_2_results = solve_ivp(dXdt, [time_to_steady_state, (2 * time_to_steady_state)], state_1_results.y[:, -1],
+                                method='Radau', t_eval=t_2,
+                                args=(activity_array, 1,))
+
+    # State 3 and 4 - Add ADP
+    t_3 = np.linspace((2 * time_to_steady_state), (3 * time_to_steady_state), time_to_steady_state * 2)
+    state_2_results.y[8, -1] = 0.375e-3  # Molar
+    state_3_results = solve_ivp(dXdt, [(2 * time_to_steady_state), (3 * time_to_steady_state)],
+                                state_2_results.y[:, -1],
+                                method='Radau', t_eval=t_3,
+                                args=(activity_array, 1,))
+
+    # Concatenate Results
+    # Note: remove redundant time points
+    all_results = np.hstack((state_1_results.y, state_2_results.y, state_3_results.y))
+    t = np.concatenate((state_1_results.t, state_2_results.t, state_3_results.t))
+
+    # Calculate complex IV Flux
+    J_C4 = np.zeros(len(t))
+    for i in range(len(t)):
+        dX, J = dXdt(t[i], all_results[:, i], activity_array, 0)
+        J_C4[i] = J[9]
+
+    # Convert complex IV flux to oxygen flux in nmol O2 / U citrate synthase
+    JO2 = J_C4 / 2 * 60 * 1e9 * 0.0000012232
+
+    experimental_JO2 = np.zeros(len(t))
+    state_1_timestamp = len(state_1_results.t)
+    state_2_timestamp = state_1_timestamp + len(state_2_results.t)
+    state_3_timestamp = state_2_timestamp + int(abs(len(state_3_results.t) / 5))
+    state_4_timestamp = state_3_timestamp + int(abs((4 * len(state_3_results.t)) / 5))
+
+    experimental_JO2[0:state_1_timestamp] = o2_flux_experiment_normalized[j][0]
+    experimental_JO2[state_1_timestamp:state_2_timestamp] = o2_flux_experiment_normalized[j][1]
+    experimental_JO2[state_2_timestamp:state_3_timestamp] = o2_flux_experiment_normalized[j][2]
+    experimental_JO2[state_3_timestamp:state_4_timestamp] = o2_flux_experiment_normalized[j][3]
+
+    # parameter and figure saving
+    df = pd.DataFrame([optimized_params])
+    df.to_csv('results/parameters.csv', mode='a', header=False, index=False)
+
+    JO2_normalized = JO2 / max(JO2)
+    timestamp_str = str(j)
+    results_dir = 'results/'
+    image_name = results_dir + timestamp_str + '.png'
+    plt.plot(t, JO2_normalized, 'r-', label="O2 flux changes")
+    plt.plot(t, experimental_JO2, 'b-', label="experimental_data")
+    plt.savefig(image_name)
+    plt.close()
